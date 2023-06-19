@@ -1,0 +1,29 @@
+#' Obtain the verhaak2009_AML data
+#'
+#' Obtain the AML bulk RNA-seq data from Verhaak et al.(2009).
+#'
+#' @details
+#' Column metadata is provided in the same form as supplied in GSE6891.
+#' This contains information such as sample_id, study_id, platform, subtypes and/or cytogenetics risks.
+#'
+#' All data are downloaded from ExperimentHub and cached for local re-use.
+#' Specific resources can be retrieved by searching for \code{leukemiasAtlas/verhaak2009_AML}.
+#'
+#' @return A \linkS4class{SummarizedExperiment} object with a single matrix of expression values after rank transformation.
+#'
+#' @author Yi-Wen Hsiao
+#'
+#' @references
+#' Verhaak RGW et al. (2009).
+#' Prediction of molecular subtypes in acute myeloid leukemia based on gene expression profiling.
+#' \emph{Haematologica} 94(1), 131
+#'
+#' @examples
+#' sce <- verhaak2009_AMLData()
+#'
+#' @export
+#'
+verhaak2009_AMLData <- function() {
+  sce <- .create_sce("verhaak2009_AML")
+  sce
+}

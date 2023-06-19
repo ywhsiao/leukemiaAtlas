@@ -1,0 +1,106 @@
+---
+title: Processing the tyner2018_AML dataset
+author: Yi-Wen Hsiao
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  BiocStyle::html_document:
+    titlecaps: false
+    toc_float: true
+bibliography: ref.bib
+---
+
+```{r style, echo=FALSE, results='hide', message=FALSE}
+library(BiocStyle)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# Downloading the expression data and metadata data
+
+We obtain a bulk RNA sequencing dataset of the AML subtypes from @tyner2018functional.
+Expression matrix for endogenous genes are available from the [BEAT2.0](https://biodev.github.io/BeatAML2/).
+We download them using the `r Biocpkg("BiocFileCache")` package.
+
+```{r}
+# import libraries
+
+library(BiocFileCache)
+library(data.table)
+library(readxl)
+library(biomaRt)
+library(stringr)
+library(dplyr)
+
+# fetch data
+bfc <- BiocFileCache("raw_data", ask = FALSE)
+base.url <- file.path("https://media.githubusercontent.com/media/",
+    "biodev/beataml2.0_data/main/")
+exp.file <- bfcrpath(bfc, file.path(base.url, 
+    "beataml_waves1to4_norm_exp_dbgap.txt"))
+
+exp <- as.data.frame(fread(exp.file))
+row.names(exp) <- exp$stable_id
+exp <- exp[,-1:-4]
+dim(exp)
+```
+
+We preclean the metadata.
+```{r}
+meta.file <- bfcrpath(bfc, "https://github.com/biodev/beataml2.0_data/raw/main/beataml_wv1to4_clinical.xlsx")
+
+metadata <- as.data.frame(read_excel(meta.file))
+metadata <- metadata[,names(metadata)%in%c('dbgap_rnaseq_sample','fabBlastMorphology')]
+metadata <- metadata[!is.na(metadata$dbgap_rnaseq_sample),]
+names(metadata) <- c('sample_id', 'AML_subtype')
+metadata$AML_subtype[is.na(metadata$AML_subtype)] <- 'unknown'
+metadata$AML_subtype[metadata$AML_subtype == 'M0/M1'] <- 'unknown'
+metadata$AML_subtype[metadata$AML_subtype == 'M4eo'] <- 'M4'
+metadata$AML_subtype[metadata$AML_subtype %in% c('M5a', 'M5b')] <- 'M5'
+metadata$AML_subtype[metadata$AML_subtype %in% c('M6a', 'M6b')] <- 'M6'
+metadata$subtype <- 'AML'
+metadata$study_id <- 'BEAT'
+metadata$platform <- 'RNAseq'
+table(metadata$AML_subtype)
+```
+
+We check that the sample are matched in the same order in both expression matrix and metadata.
+
+```{r}
+# sample selection
+common_smp <- intersect(names(exp), metadata$sample_id)
+exp_subset <- exp[,common_smp]
+metadata <- metadata[metadata$sample_id%in%common_smp,]
+metadata <- metadata[,c('study_id','sample_id', 'subtype', 'platform', 'AML_subtype')]
+row.names(metadata) <- metadata$sample_id
+metadata <- metadata[common_smp,]
+all(row.names(metadata)==names(exp_subset))
+```
+
+We transform the expression value into rank scale.
+```{r}
+rankTrans <- function(exp_data){
+  transformed_data <- (apply(exp_data, 2, rank)-1)/(nrow(exp_data)-1)
+  transformed_data
+}
+rankdata <- rankTrans(exp_subset)
+```
+
+
+# Saving to file 
+
+We now save all of the components to file for upload to `r Biocpkg("ExperimentHub")`.
+These will be used to construct a `DataFrame` on the client side when the dataset is requested.
+
+```{r}
+path <- file.path("leukemiaAtlas", "tyner2018_AML")
+dir.create(path, showWarnings=FALSE, recursive=TRUE)
+saveRDS(rankdata, file=file.path(path, "rankData.rds"))
+saveRDS(metadata, file=file.path(path, "colData.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+
+# References

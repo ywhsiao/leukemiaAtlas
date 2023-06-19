@@ -1,0 +1,118 @@
+---
+title: Processing the cancer2013_AML dataset
+author: Yi-Wen Hsiao
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  BiocStyle::html_document:
+    titlecaps: false
+    toc_float: true
+bibliography: ref.bib
+---
+
+```{r style, echo=FALSE, results='hide', message=FALSE}
+library(BiocStyle)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# Downloading the expression data and metadata data
+
+We obtain a bulk RNA sequencing dataset of the AML subtypes from @cancer2013genomic.
+Expression matrix for endogenous genes are available from the [TCGA-LAML](https://xenabrowser.net/datapages/?cohort=TCGA%20Acute%20Myeloid%20Leukemia%20(LAML)&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443).
+We download them using the `r Biocpkg("BiocFileCache")` package.
+
+```{r}
+# import libraries
+
+library(BiocFileCache)
+library(data.table)
+library(readxl)
+library(biomaRt)
+library(stringr)
+library(dplyr)
+
+# fetch data
+bfc <- BiocFileCache("raw_data", ask = FALSE)
+
+exp.file <- bfcrpath(bfc, "https://tcga-xena-hub.s3.us-east-1.amazonaws.com/download/TCGA.LAML.sampleMap%2FHiSeqV2.gz")
+
+exp <- as.data.frame(fread(exp.file))
+row.names(exp) <- exp[,1]
+exp <- exp[,-1]
+dim(exp)
+```
+We preclean the metadata.
+```{r}
+meta.file <- bfcrpath(bfc, "https://tcga-xena-hub.s3.us-east-1.amazonaws.com/download/TCGA.LAML.sampleMap%2FLAML_clinicalMatrix")
+
+metadata <- as.data.frame(fread(meta.file))
+metadata <- metadata[,names(metadata)%in%c('sampleID','acute_myeloid_leukemia_calgb_cytogenetics_risk_category', 'leukemia_french_american_british_morphology_code')]
+names(metadata) <- c('sample_id', 'AML_risk','AML_subtype')
+metadata$AML_risk[metadata$AML_risk=='Intermediate/Normal'] <- 'intermediate'
+metadata$AML_risk[metadata$AML_risk=='Favorable'] <- 'good'
+metadata$AML_risk[metadata$AML_risk=='Poor'] <- 'poor'
+metadata$AML_risk[metadata$AML_risk==''] <- 'unknown'
+
+metadata$AML_subtype[metadata$AML_subtype=='M0 Undifferentiated'] <- 'M0'
+metadata$AML_subtype[metadata$AML_subtype=='Not Classified'] <- 'unknown'
+metadata$study_id <- 'TCGA'
+metadata$platform <- 'RNAseq'
+table(metadata$AML_subtype)
+table(metadata$AML_risk)
+```
+We also preprocess the expression matrix.
+
+```{r}
+# symbol2ensembl
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+sym2ens <- getBM(attributes=c('external_gene_name','ensembl_gene_id'),
+      filters = 'external_gene_name',
+      values = row.names(exp),
+      mart = ensembl)
+names(sym2ens) <- c('gene_symbol', 'ensembl_id')
+exp_annot <- merge(sym2ens, exp, by.x = 'gene_symbol', by.y = 'row.names')
+row.names(exp_annot) <- exp_annot[,2]
+exp_annot <- exp_annot[,-1:-2]
+names(exp_annot)
+```
+
+We check that the sample are matched in the same order in both expression matrix and metadata.
+
+```{r}
+# sample selection
+common_smp <- intersect(names(exp_annot), metadata$sample_id)
+exp_subset <- exp_annot[,common_smp]
+metadata <- metadata[metadata$sample_id%in%common_smp,]
+metadata <- metadata[,c('study_id','sample_id', 'AML_subtype', 'platform')]
+row.names(metadata) <- metadata$sample_id
+metadata <- metadata[common_smp,]
+all(row.names(metadata)==names(exp_subset))
+```
+We transform the expression value into rank scale.
+```{r}
+rankTrans <- function(exp_data){
+  transformed_data <- (apply(exp_data, 2, rank)-1)/(nrow(exp_data)-1)
+  transformed_data
+}
+rankdata <- rankTrans(exp_subset)
+```
+
+
+# Saving to file 
+
+We now save all of the components to file for upload to `r Biocpkg("ExperimentHub")`.
+These will be used to construct a `DataFrame` on the client side when the dataset is requested.
+
+```{r}
+path <- file.path("leukemiaAtlas", "cancer2013_AML")
+dir.create(path, showWarnings=FALSE, recursive=TRUE)
+saveRDS(rankdata, file=file.path(path, "rankData.rds"))
+saveRDS(metadata, file=file.path(path, "colData.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+
+# References

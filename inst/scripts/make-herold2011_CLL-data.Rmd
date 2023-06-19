@@ -1,0 +1,241 @@
+---
+title: Processing the herold2011_CLLs dataset
+author: Yi-Wen Hsiao
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  BiocStyle::html_document:
+    titlecaps: false
+    toc_float: true
+bibliography: ref.bib
+---
+
+```{r style, echo=FALSE, results='hide', message=FALSE}
+library(BiocStyle)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# Downloading the expression data and metadata data
+
+We obtain a bulk RNA sequencing dataset of the healthy subtypes from @herold2011eight.
+Expression matrix for endogenous genes are available from the Gene Expression Omnibus
+using the accession number [GSE22762](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE22762).
+We download them using the `r Biocpkg("GEOquery")` package.
+
+```{r}
+# import libraries
+library(GEOquery)
+library(biomaRt)
+library(stringr)
+library(dplyr)
+library(purrr)
+
+# fetch data based on 
+gse_no <-'GSE22762'
+gse <- getGEO(gse_no, GSEMatrix=TRUE, destdir=tempdir())
+gse
+```
+
+We preclean the metadata.
+
+```{r}
+# GPL570
+pheno_gpl570 <- pData(phenoData(gse[[1]]))[,c(1,6,8)]
+pheno_gpl570 <- pheno_gpl570[str_detect(pheno_gpl570$title, 'CLL'),]
+pheno_gpl570$title <- 'CLL'
+pheno_gpl570$gsm <- row.names(pheno_gpl570)
+pheno_gpl570$sample_id <- paste0(gse_no, '_', row.names(pheno_gpl570), '_', pheno_gpl570$title)
+pheno_gpl570 <- pheno_gpl570[,c('title', 'sample_id' ,'gsm')]
+names(pheno_gpl570)[1] <- 'subtype'
+pheno_gpl570$platform <- 'HG-U133_Plus_2'
+pheno_gpl570$study_id <- gse_no
+head(pheno_gpl570)
+
+#GPL96
+pheno_gpl96 <- pData(phenoData(gse[[2]]))[,c(1,6,8)]
+pheno_gpl96 <- pheno_gpl96[str_detect(pheno_gpl96$title, 'CLL'),]
+pheno_gpl96$title <- 'CLL'
+pheno_gpl96$gsm <- row.names(pheno_gpl96)
+pheno_gpl96$sample_id <- paste0(gse_no, '_', row.names(pheno_gpl96), '_', pheno_gpl96$title)
+pheno_gpl96 <- pheno_gpl96[,c('title', 'sample_id' ,'gsm')]
+names(pheno_gpl96)[1] <- 'subtype'
+pheno_gpl96$platform <- 'HG-U133A'
+pheno_gpl96$study_id <- gse_no
+head(pheno_gpl96)
+
+#GPL97
+pheno_gpl97 <- pData(phenoData(gse[[3]]))[,c(1,6,8)]
+pheno_gpl97 <- pheno_gpl97[str_detect(pheno_gpl97$title, 'CLL'),]
+pheno_gpl97$title <- 'CLL'
+pheno_gpl97$gsm <- row.names(pheno_gpl97)
+pheno_gpl97$sample_id <- paste0(gse_no, '_', row.names(pheno_gpl97), '_', pheno_gpl97$title)
+pheno_gpl97 <- pheno_gpl97[,c('title', 'sample_id' ,'gsm')]
+names(pheno_gpl97)[1] <- 'subtype'
+pheno_gpl97$platform <- 'HG-U133B'
+pheno_gpl97$study_id <- gse_no
+head(pheno_gpl97)
+
+
+# merge all above metadata together
+
+metadata <- rbind(pheno_gpl570, pheno_gpl96, pheno_gpl97)
+dim(metadata)
+
+```
+
+
+We also preprocess the expression matrix.
+
+```{r}
+# GPL570
+exp <- exprs(gse[[1]])
+gpl <- getGEO('GPL570', destdir=tempdir())
+#colnames(Table(gpl))
+annot <- Table(gpl)[,c("ID","Gene Symbol")]
+names(annot) <- c('probe_id', 'gene_symbol')
+annot<- annot[!(annot$gene_symbol == ''),]
+annot<- annot[!grepl("orf", annot$gene_symbol),]
+annot<- annot[!grepl("ORF", annot$gene_symbol),]
+annot<- annot[!grepl("LINC", annot$gene_symbol),]
+annot<- annot[!grepl("MIR", annot$gene_symbol),]
+annot<- annot[!grepl("LOC", annot$gene_symbol),]
+annot<- annot[!grepl("\\/\\/", annot$gene_symbol),]
+exp_annot <- merge(annot, exp, by.x = 'probe_id', by.y = 'row.names')[,-1]
+exp_annot_final <- exp_annot %>%
+  group_by(gene_symbol) %>%
+  summarise_all("mean") %>% as.data.frame()
+row.names(exp_annot_final) <- exp_annot_final$gene_symbol
+exp_annot_final <- exp_annot_final[,-1]
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+sym2ens <- getBM(attributes=c('external_gene_name','ensembl_gene_id'),
+      filters = 'external_gene_name',
+      values = row.names(exp_annot_final),
+      mart = ensembl)
+names(sym2ens) <- c('gene_symbol', 'ensembl_id')
+gene_annot <- merge(annot, sym2ens, by = 'gene_symbol')
+gene_annot <- unique(gene_annot[,-2])
+exp_annot_ensembl <- merge(gene_annot, exp_annot_final, by.x = 'gene_symbol', by.y = 'row.names')
+row.names(exp_annot_ensembl) <- exp_annot_ensembl$ensembl_id
+exp_annot_ensembl_gpl570 <- exp_annot_ensembl[,-1:-2]
+head(exp_annot_ensembl_gpl570[,1:5])
+
+# GPL96
+exp <- exprs(gse[[2]])
+gpl <- getGEO('GPL96', destdir=tempdir())
+#colnames(Table(gpl))
+annot <- Table(gpl)[,c("ID","Gene Symbol")]
+names(annot) <- c('probe_id', 'gene_symbol')
+annot<- annot[!(annot$gene_symbol == ''),]
+annot<- annot[!grepl("orf", annot$gene_symbol),]
+annot<- annot[!grepl("ORF", annot$gene_symbol),]
+annot<- annot[!grepl("LINC", annot$gene_symbol),]
+annot<- annot[!grepl("MIR", annot$gene_symbol),]
+annot<- annot[!grepl("LOC", annot$gene_symbol),]
+annot<- annot[!grepl("\\/\\/", annot$gene_symbol),]
+exp_annot <- merge(annot, exp, by.x = 'probe_id', by.y = 'row.names')[,-1]
+exp_annot_final <- exp_annot %>%
+  group_by(gene_symbol) %>%
+  summarise_all("mean") %>% as.data.frame()
+row.names(exp_annot_final) <- exp_annot_final$gene_symbol
+exp_annot_final <- exp_annot_final[,-1]
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+sym2ens <- getBM(attributes=c('external_gene_name','ensembl_gene_id'),
+      filters = 'external_gene_name',
+      values = row.names(exp_annot_final),
+      mart = ensembl)
+names(sym2ens) <- c('gene_symbol', 'ensembl_id')
+gene_annot <- merge(annot, sym2ens, by = 'gene_symbol')
+gene_annot <- unique(gene_annot[,-2])
+exp_annot_ensembl <- merge(gene_annot, exp_annot_final, by.x = 'gene_symbol', by.y = 'row.names')
+row.names(exp_annot_ensembl) <- exp_annot_ensembl$ensembl_id
+exp_annot_ensembl_gpl96 <- exp_annot_ensembl[,-1:-2]
+head(exp_annot_ensembl_gpl96[,1:5])
+
+
+# GPL97
+exp <- exprs(gse[[3]])
+gpl <- getGEO('GPL97', destdir=tempdir())
+#colnames(Table(gpl))
+annot <- Table(gpl)[,c("ID","Gene Symbol")]
+names(annot) <- c('probe_id', 'gene_symbol')
+annot<- annot[!(annot$gene_symbol == ''),]
+annot<- annot[!grepl("orf", annot$gene_symbol),]
+annot<- annot[!grepl("ORF", annot$gene_symbol),]
+annot<- annot[!grepl("LINC", annot$gene_symbol),]
+annot<- annot[!grepl("MIR", annot$gene_symbol),]
+annot<- annot[!grepl("LOC", annot$gene_symbol),]
+annot<- annot[!grepl("\\/\\/", annot$gene_symbol),]
+exp_annot <- merge(annot, exp, by.x = 'probe_id', by.y = 'row.names')[,-1]
+exp_annot_final <- exp_annot %>%
+  group_by(gene_symbol) %>%
+  summarise_all("mean") %>% as.data.frame()
+row.names(exp_annot_final) <- exp_annot_final$gene_symbol
+exp_annot_final <- exp_annot_final[,-1]
+ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+sym2ens <- getBM(attributes=c('external_gene_name','ensembl_gene_id'),
+      filters = 'external_gene_name',
+      values = row.names(exp_annot_final),
+      mart = ensembl)
+names(sym2ens) <- c('gene_symbol', 'ensembl_id')
+gene_annot <- merge(annot, sym2ens, by = 'gene_symbol')
+gene_annot <- unique(gene_annot[,-2])
+exp_annot_ensembl <- merge(gene_annot, exp_annot_final, by.x = 'gene_symbol', by.y = 'row.names')
+row.names(exp_annot_ensembl) <- exp_annot_ensembl$ensembl_id
+exp_annot_ensembl_gpl97 <- exp_annot_ensembl[,-1:-2]
+head(exp_annot_ensembl_gpl97[,1:5])
+
+# merge above expression matrix together
+exp_annot_ensembl_gpl570$gene_id <- row.names(exp_annot_ensembl_gpl570)
+exp_annot_ensembl_gpl96$gene_id <- row.names(exp_annot_ensembl_gpl96)
+exp_annot_ensembl_gpl97$gene_id <- row.names(exp_annot_ensembl_gpl97)
+
+exp_lst <- list(exp_annot_ensembl_gpl570, exp_annot_ensembl_gpl96, exp_annot_ensembl_gpl97)
+exp_annot_ensembl <- purrr::reduce(exp_lst, left_join, by = "gene_id")
+dim(exp_annot_ensembl)
+row.names(exp_annot_ensembl) <- exp_annot_ensembl[,'gene_id']
+exp_annot_ensembl <- exp_annot_ensembl[,names(exp_annot_ensembl)!='gene_id']
+```
+
+We check that the sample are matched in the same order in both expression matrix and metadata.
+
+```{r}
+# sample selection
+common_smp <- intersect(names(exp_annot_ensembl), metadata$gsm)
+exp_subset <- exp_annot_ensembl[,common_smp]
+metadata <- metadata[common_smp,]
+names(exp_subset) <- metadata$sample_id
+metadata <- metadata[,names(metadata)!= 'gsm']
+row.names(metadata) <- metadata$sample_id
+metadata <- metadata[,c('study_id','sample_id', 'subtype', 'platform')]
+all(row.names(metadata)==names(exp_subset))
+```
+
+We transform the expression value into rank scale.
+```{r}
+rankTrans <- function(exp_data){
+  transformed_data <- (apply(exp_data, 2, rank)-1)/(nrow(exp_data)-1)
+  transformed_data
+}
+rankdata <- rankTrans(exp_subset)
+```
+
+
+# Saving to file 
+
+We now save all of the components to file for upload to `r Biocpkg("ExperimentHub")`.
+These will be used to construct a `DataFrame` on the client side when the dataset is requested.
+
+```{r}
+
+path <- file.path("leukemiaAtlas", "herold2011_CLL")
+dir.create(path, showWarnings=FALSE, recursive=TRUE)
+saveRDS(rankdata, file=file.path(path, "rankData.rds"))
+saveRDS(metadata, file=file.path(path, "colData.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+
+# References

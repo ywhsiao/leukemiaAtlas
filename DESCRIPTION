@@ -3,18 +3,21 @@ Title: A collection of the leukemia’s gene expression datasets
 Version: 0.99.0
 Date: 2023-06-09
 Authors@R: 
-    person("Yi-Wen", "Hsiao", , "y.w.hsiao9419@gmail.com", role = c("aut", "cre"))
-Description: This package contains a collection of 38 publicly available bulk or single-cell RNA-seq datasets specific to leukemia disease.
+    person("Yi-Wen", "Hsiao", ,"y.w.hsiao9419@gmail.com", role = c("aut", "cre"))
+Description: This package contains a collection of 38 publicly available bulk or single-cell RNA-seq datasets specific to leukemia disease from either TCGA(https://www.cancer.gov/ccg/research/genome-sequencing/tcga) or GEO(https://www.ncbi.nlm.nih.gov/geo/) data reprositories. In this study, we employed various statistical methods to construct a comprehensive leukemia reference atlas using transcriptome profiles from 23 independent studies, encompassing a total of 1,807 samples. We then utilized this reference atlas to accurately classify patients by projecting query data obtained from either bulk or single-cell sequencing technologies onto it.
 License: Artistic-2.0
 BugReports: https://support.bioconductor.org/t/leukemiasAtlas
+Depends:
+    R (>= 4.2.0)
 Imports: 
-    ExperimentHub
+    ExperimentHub,
+    SingleCellExperiment
 Suggests: 
     ExperimentHubData,
     knitr,
     rmarkdown,
     testthat (>= 3.0.0)
-biocViews: ExperimentHub
+biocViews: ExperimentHub, RNASeqData, SingleCellData, ExpressionData
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.3

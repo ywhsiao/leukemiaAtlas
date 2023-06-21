@@ -1,0 +1,127 @@
+---
+title: Processing the van2019_AML_sc dataset
+author: Yi-Wen Hsiao
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  BiocStyle::html_document:
+    titlecaps: false
+    toc_float: true
+bibliography: ref.bib
+---
+
+```{r style, echo=FALSE, results='hide', message=FALSE}
+library(BiocStyle)
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# Downloading the expression data and metadata data
+
+We obtain a bulk RNA sequencing dataset of the AML subtypes from @van2019single.
+Expression matrix for endogenous genes are available from the Gene Expression Omnibus
+using the accession number [GSE116256](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE116256).
+We download them using the `r Biocpkg("BiocFileCache")` package.
+
+```{r}
+# import libraries
+
+library(BiocFileCache)
+library(GEOquery)
+library(biomaRt)
+library(stringr)
+library(dplyr)
+library(plyr)
+library(data.table)
+
+# fetch data
+bfc <- BiocFileCache("raw_data", ask = FALSE)
+base.url <- file.path("ftp://ftp.ncbi.nlm.nih.gov/geo",
+    "series/GSE116nnn/GSE116256/matrix")
+meta.file <- bfcrpath(bfc, file.path(base.url, 
+    "GSE116256-GPL18573_series_matrix.txt.gz"))
+```
+
+We preclean the metadata.
+```{r}
+metadata <- as.data.frame(data.table::fread(file=meta.file, nrows = 67, fill=TRUE))
+metadata <- as.data.frame(t(metadata[metadata[,1]%in%c('!Sample_title','!Sample_geo_accession'),]))
+metadata <- metadata[str_detect(metadata[,1],'^AML'),]
+metadata <- metadata[str_detect(metadata[,1],'D0'),]
+names(metadata) <- c('title', 'gsm')
+metadata$subtype <- 'AML'
+metadata$sample_id <- paste0('GSE116256_', metadata$gsm, '_', metadata$subtype)
+metadata$study_id <- 'GSE116256'
+metadata$platform <- 'scRNAseq'
+row.names(metadata) <- metadata$gsm
+
+metadata_exp <- metadata[!(str_detect(metadata$title,'-anno')),]
+metadata_anno <- metadata[str_detect(metadata$title,'-anno'),]
+head(metadata_anno)
+```
+
+We also preprocess the expression matrix and cell annotation.
+```{r}
+# fetch data
+gsm_exp_vector <- metadata_exp$gsm
+gsm_anno_vector <- metadata_anno$gsm
+exp_list <- list()
+anno_list <- list()
+bfc <- BiocFileCache("raw_data", ask = FALSE)
+for (i in 1:length(gsm_exp_vector)){
+  #i =1
+  exp.url <- file.path("ftp://ftp.ncbi.nlm.nih.gov/geo",
+    paste0("samples/GSM3587nnn/", gsm_exp_vector[i],"/suppl"))
+  # exp
+  exp.file <- bfcrpath(bfc, file.path(exp.url, 
+    paste0(gsm_exp_vector[i], '_', metadata_exp[i, 'title'], '.dem.txt.gz')))
+  exp_tmp <- as.data.frame(fread(exp.file))
+  ensembl <- useMart("ensembl", dataset="hsapiens_gene_ensembl")
+  sym2ens <- getBM(attributes=c('external_gene_name','ensembl_gene_id'),
+      filters = 'external_gene_name',
+      values = exp_tmp$Gene,
+      mart = ensembl)
+  names(sym2ens) <- c('gene_symbol', 'ensembl_id')
+  exp_annot_tmp <- merge(sym2ens, exp_tmp, by.x = 'gene_symbol', by.y = 'Gene')
+  exp_annot_tmp <- exp_annot_tmp[,-1:-2]
+  
+  # anno
+  anno.url <- file.path("ftp://ftp.ncbi.nlm.nih.gov/geo",
+    paste0("samples/GSM3587nnn/", gsm_anno_vector[i],"/suppl"))
+  anno.file <- bfcrpath(bfc, file.path(anno.url, 
+    paste0(gsm_anno_vector[i], '_', metadata_exp[i, 'title'], '.anno.txt.gz')))
+  anno_tmp <- as.data.frame(fread(anno.file))
+  row.names(anno_tmp) <- anno_tmp$Cell
+  anno_tmp <- anno_tmp[,-1]
+  common_cell <- intersect(names(exp_annot_tmp), row.names(anno_tmp))
+  exp_annot_tmp <- exp_annot_tmp[,common_cell]
+  anno_tmp <- anno_tmp[common_cell,]
+  head(anno_tmp)
+  
+  # list
+  exp_list[[i]] <- exp_annot_tmp
+  anno_list[[i]] <- anno_tmp  
+  
+}
+
+names(exp_list) <- metadata_exp$title
+names(anno_list) <- metadata_exp$title
+```
+
+# Saving to file 
+
+We now save all of the components to file for upload to `r Biocpkg("ExperimentHub")`.
+These will be used to construct a `DataFrame` on the client side when the dataset is requested.
+
+```{r}
+path <- file.path("leukemiaAtlas", "van2019_AML_sc")
+dir.create(path, showWarnings=FALSE, recursive=TRUE)
+saveRDS(exp_list, file=file.path(path, "countData.rds"))
+saveRDS(anno_list, file=file.path(path, "colData.rds"))
+```
+
+# Session information
+
+```{r}
+sessionInfo()
+```
+
+# References

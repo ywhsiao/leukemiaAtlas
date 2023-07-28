@@ -686,7 +686,7 @@ van2019_AML_sc <- data.frame(
   Title = sprintf("van2019_AML_sc_%s", c("countData", "colData")),
   Description = sprintf("%s single cell expression data of AML samples from GSE116256",
                         c("count expression matrix", "per-cell metadata")),
-  RdstaPath = file.path("leukemiaAtlas", "van2019_AML_", c("countData.rds", "colData.rds")),
+  RdstaPath = file.path("leukemiaAtlas", "van2019_AML_sc", c("countData.rds", "colData.rds")),
   BiocVersion="3.18",
   Genome="hg38",
   SourceType="TAR",
